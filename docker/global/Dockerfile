@@ -48,4 +48,6 @@ RUN /bin/bash -c "pip3 install huggingface_hub && \
     sed -i 's|cpu|cuda|g' /root/magic-pdf.json"
 
 # Set the entry point to activate the virtual environment and run the command line tool
-ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]
+# ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && exec \"$@\"", "--"]
+ENTRYPOINT ["/bin/bash", "-c", "source /opt/mineru_venv/bin/activate && python3 server.py"]
+
