@@ -1,98 +1,93 @@
-import os
-import uuid
-import shutil
-import tempfile
-import gc
-import fitz
 import torch
-import base64
 import filetype
+import json
 import litserve as ls
-from pathlib import Path
+import os
+import io
+import zipfile
+import shutil
+from unittest.mock import patch
 from fastapi import HTTPException
+from fastapi.responses import Response
+from magic_pdf.tools.common import do_parse
+from magic_pdf.model.doc_analyze_by_custom_model import ModelSingleton
 
 
 class MinerUAPI(ls.LitAPI):
-    def __init__(self, output_dir='/tmp'):
-        self.output_dir = Path(output_dir)
+    def __init__(self, output_dir='./tmp'):
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    @staticmethod
+    def clean_memory(device):
+        import gc
+        if torch.cuda.is_available():
+            with torch.cuda.device(device):
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        gc.collect()
 
     def setup(self, device):
-        if device.startswith('cuda'):
-            os.environ['CUDA_VISIBLE_DEVICES'] = device.split(':')[-1]
-            if torch.cuda.device_count() > 1:
-                raise RuntimeError("Remove any CUDA actions before setting 'CUDA_VISIBLE_DEVICES'.")
-
-        from magic_pdf.tools.cli import do_parse, convert_file_to_pdf
-        from magic_pdf.model.doc_analyze_by_custom_model import ModelSingleton
-
-        self.do_parse = do_parse
-        self.convert_file_to_pdf = convert_file_to_pdf
-
-        model_manager = ModelSingleton()
-        model_manager.get_model(True, False)
-        model_manager.get_model(False, False)
-        print(f'Model initialization complete on {device}!')
+        with patch('magic_pdf.model.doc_analyze_by_custom_model.get_device') as mock_obj:
+            mock_obj.return_value = device
+            model_manager = ModelSingleton()
+            model_manager.get_model(True, False)
+            model_manager.get_model(False, False)
+            mock_obj.assert_called()
+            print(f'Model initialization complete!')
 
     def decode_request(self, request):
-        file = request['file']
-        file = self.cvt2pdf(file)
-        opts = request.get('kwargs', {})
-        opts.setdefault('debug_able', False)
-        opts.setdefault('parse_method', 'auto')
-        return file, opts
+        uploaded_file = request['file']
+        file_content = uploaded_file.file.read()
+        filename = uploaded_file.filename  # 获取原始文件名
+        kwargs = json.loads(request['kwargs'])
+        
+        # 验证文件类型是否为PDF（客户端已转换）
+        if filetype.guess_mime(file_content) != 'application/pdf':
+            raise HTTPException(400, "Invalid file type (must be PDF after conversion)")
+            
+        return file_content, kwargs, filename
 
     def predict(self, inputs):
         try:
-            pdf_name = str(uuid.uuid4())
-            output_dir = self.output_dir.joinpath(pdf_name)
-            self.do_parse(self.output_dir, pdf_name, inputs[0], [], **inputs[1])
-            return output_dir
+            file_content, kwargs, filename = inputs
+            # 生成基于原始文件名的目录名
+            base_name = os.path.splitext(os.path.basename(filename))[0]
+            output_dir_path = os.path.join(self.output_dir, base_name)
+            
+            # 执行解析
+            do_parse(self.output_dir, base_name, file_content, [], **kwargs)
+            
+            # 打包结果到ZIP
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(output_dir_path):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, start=self.output_dir)
+                        zipf.write(file_path, arcname)
+            buffer.seek(0)
+            zip_data = buffer.getvalue()
+            
+            # 清理临时文件
+            shutil.rmtree(output_dir_path)
+            
+            return zip_data
         except Exception as e:
-            shutil.rmtree(output_dir, ignore_errors=True)
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(500, detail=f'{e}')
         finally:
-            self.clean_memory()
+            self.clean_memory(self.device)
 
     def encode_response(self, response):
-        return {'output_dir': response}
-
-    def clean_memory(self):
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-        gc.collect()
-
-    def cvt2pdf(self, file_base64):
-        try:
-            temp_dir = Path(tempfile.mkdtemp())
-            temp_file = temp_dir.joinpath('tmpfile')
-            file_bytes = base64.b64decode(file_base64)
-            file_ext = filetype.guess_extension(file_bytes)
-
-            if file_ext in ['pdf', 'jpg', 'png', 'doc', 'docx', 'ppt', 'pptx']:
-                if file_ext == 'pdf':
-                    return file_bytes
-                elif file_ext in ['jpg', 'png']:
-                    with fitz.open(stream=file_bytes, filetype=file_ext) as f:
-                        return f.convert_to_pdf()
-                else:
-                    temp_file.write_bytes(file_bytes)
-                    self.convert_file_to_pdf(temp_file, temp_dir)
-                    return temp_file.with_suffix('.pdf').read_bytes()
-            else:
-                raise Exception('Unsupported file format')
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        return Response(
+            content=response,
+            media_type='application/zip',
+            headers={'Content-Disposition': 'attachment; filename="output.zip"'}
+        )
 
 
 if __name__ == '__main__':
-    server = ls.LitServer(
-        MinerUAPI(output_dir='/tmp'),
-        accelerator='cuda',
-        devices='auto',
-        workers_per_device=1,
-        timeout=False
-    )
-    server.run(port=8000)
+    server = ls.LitServer(MinerUAPI(), accelerator='gpu', devices='auto', timeout=False)
+    server.run(port=8999)
+
+    
