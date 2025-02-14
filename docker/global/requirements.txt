@@ -15,6 +15,7 @@ torchvision>=0.17.2,<=0.18.1
 matplotlib
 ultralytics>=8.3.48
 paddleocr==2.7.3
+python-multipart==0.0.20
 struct-eqtable==0.3.2
 einops
 accelerate
