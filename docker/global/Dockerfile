@@ -17,12 +17,16 @@ RUN apt-get update && \
         python3-pip \
         wget \
         git \
+        tzdata \
         libgl1 \
         libglib2.0-0 \
         && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.10 as the default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+# Set timezone
+RUN ln -fsn /usr/share/zoneinfo/Asia/Shanghai /etc/localtime  && \
+    echo " Asia/Shanghai" > /etc/timezone 
 
 # Create a virtual environment for MinerU
 RUN python3 -m venv /opt/mineru_venv
@@ -31,10 +35,15 @@ RUN python3 -m venv /opt/mineru_venv
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     pip3 install --upgrade pip && \
     wget https://github.com/Onionbai/MinerU/raw/master/docker/global/requirements.txt -O requirements.txt && \
-    wget https://github.com/Onionbai/MinerU/raw/master/projects/multi_gpu/server.py -O server.py && \
     pip3 install -r requirements.txt --extra-index-url https://wheels.myhloli.com && \
     pip3 install paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/"
-
+# Install server side Python packages
+RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
+    wget https://github.com/Onionbai/MinerU/raw/master/projects/multi_gpu/server.py -O server.py && \
+    pip3 install --upgrade pip && \
+    wget https://github.com/Onionbai/MinerU/raw/master/docker/global/server_requirements.txt -O server_requirements.txt && \
+    pip3 install -r requirements.txt --extra-index-url https://wheels.myhloli.com"
+    
 # Copy the configuration file template and install magic-pdf latest
 RUN /bin/bash -c "wget https://github.com/opendatalab/MinerU/raw/master/magic-pdf.template.json && \
     cp magic-pdf.template.json /root/magic-pdf.json && \
