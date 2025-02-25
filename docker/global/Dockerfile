@@ -42,7 +42,7 @@ RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \
     wget https://github.com/Onionbai/MinerU/raw/master/projects/multi_gpu/server.py -O server.py && \
     pip3 install --upgrade pip && \
     wget https://github.com/Onionbai/MinerU/raw/master/docker/global/server_requirements.txt -O server_requirements.txt && \
-    pip3 install -r requirements.txt --extra-index-url https://wheels.myhloli.com"
+    pip3 install -r server_requirements.txt --extra-index-url https://wheels.myhloli.com"
     
 # Copy the configuration file template and install magic-pdf latest
 RUN /bin/bash -c "wget https://github.com/opendatalab/MinerU/raw/master/magic-pdf.template.json && \
