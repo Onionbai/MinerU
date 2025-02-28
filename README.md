@@ -312,7 +312,7 @@ If your device supports CUDA and meets the GPU requirements of the mainline envi
 > docker run --rm --gpus=all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
 > ```
   ```bash
-  wget https://github.com/opendatalab/MinerU/raw/master/docker/global/Dockerfile -O Dockerfile
+  wget https://github.com/Onionbai/MinerU/raw/master/docker/global/Dockerfile -O Dockerfile
   docker build -t mineru:latest .
   docker run -it --name mineru --gpus=all mineru:latest /bin/bash -c "echo 'source /opt/mineru_venv/bin/activate' >> ~/.bashrc && exec bash"
   magic-pdf --help
